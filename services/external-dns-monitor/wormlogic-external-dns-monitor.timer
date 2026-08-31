@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Wormlogic external DNS observation monitor
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=2min
+AccuracySec=15s
+Unit=wormlogic-external-dns-monitor.service
+
+[Install]
+WantedBy=timers.target

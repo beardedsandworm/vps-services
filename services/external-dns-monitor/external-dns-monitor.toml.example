@@ -1,0 +1,20 @@
+[monitor]
+# Queries originate on Heighliner and traverse the external WireGuard path.
+positive_name = "example.com"
+blocked_name = "doubleclick.net"
+vantage = "external-wireguard"
+state_file = "/var/lib/wormlogic-external-dns-monitor/state.json"
+
+[ingress]
+# Provision this n8n correlation webhook before enabling the timer.
+endpoint = "https://ops.wormlogic.com/webhook/leto/dns-observations"
+token_file = "/home/lightweight/vps-services/runtime/vps01/secrets/leto_ops_ingress_token"
+machine_id = "vps01"
+
+[piholes.pihole1]
+address = "10.42.42.10"
+[piholes.pihole2]
+address = "10.42.42.11"
+
+[midway]
+address = "10.42.42.1"

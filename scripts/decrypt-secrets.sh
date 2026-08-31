@@ -15,6 +15,7 @@ dotenv_secrets=(
 
 text_secrets=(
   "pihole_web_password.txt"
+  "leto_ops_ingress_token"
 )
 
 mkdir -p "${RUNTIME_DIR}"

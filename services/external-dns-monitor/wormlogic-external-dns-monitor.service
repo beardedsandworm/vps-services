@@ -1,0 +1,31 @@
+[Unit]
+Description=Wormlogic external DNS current-observation monitor
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/opt/wormlogic/external-dns-monitor/current/REVISION
+
+[Service]
+Type=oneshot
+User=lightweight
+Group=lightweight
+WorkingDirectory=/opt/wormlogic/external-dns-monitor/current
+Environment=PATH=/usr/bin:/bin
+ExecStartPre=/usr/bin/python3 /opt/wormlogic/external-dns-monitor/current/external_dns_monitor.py --config /etc/wormlogic/external-dns-monitor.toml --preflight --require-runtime-revision
+ExecStart=/usr/bin/flock -n /var/lib/wormlogic-external-dns-monitor/monitor.lock /usr/bin/python3 /opt/wormlogic/external-dns-monitor/current/external_dns_monitor.py --config /etc/wormlogic/external-dns-monitor.toml
+StateDirectory=wormlogic-external-dns-monitor
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=2min
+TimeoutStopSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/home/lightweight/vps-services/runtime/vps01/secrets/leto_ops_ingress_token
+ReadWritePaths=/var/lib/wormlogic-external-dns-monitor
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
