@@ -7,8 +7,8 @@ This directory contains the authoritative Git-owned export of the active n8n wor
 - **Workflow:** `Correlate DNS Current Observations`
 - **n8n workflow ID:** `6aOCYolK7VbF4oit`
 - **Production webhook:** `POST /webhook/leto/dns-observations`
-- **Read-back version:** `b8f99757-b2f7-4187-a493-3a8ce2bab183`
-- **Read-back timestamp:** `2026-09-01T14:01:58.356Z`
+- **Read-back version:** `b527058f-d6b1-429d-a55a-8a305b118d98`
+- **Read-back timestamp:** `2026-09-01T14:15:11.382Z`
 - **Activation:** active
 
 The adjacent `correlate-dns-current-observations.json` is a source-normalized REST read-back of that workflow: it retains its identity, active graph, connections, and settings, while deliberately excluding runtime `staticData`. n8n remains authoritative for bounded episode history, report delivery state, and execution data; Git remains authoritative for the workflow graph. Its name deliberately describes its live responsibility; it is not an inactive draft.
@@ -24,6 +24,8 @@ The export contains n8n credential references only. It contains no credential va
 ## Daily DNS operational report
 
 At **09:00 America/New_York** the same correlation workflow produces one report for the preceding local calendar day and routes it with the existing `Discord - Leto Reports` credential. It does not use the alert credential or create a new observer, poller, heartbeat, or alert path.
+
+Daily reports use a blue structured Discord embed titled `Daily DNS Report for <date>`. Separate fields present household DNS, resolver health, external path, diagnostic-only Midway recursion, observer health, and actionable attention. Durations and vantage appear only when an incident count is nonzero. The prepared cadence palette reserves purple for a future weekly report and gold for a future monthly report; neither cadence is implemented or scheduled here.
 
 The report includes household DNS impact, individual resolver degradation, LAN resolver-selection failures, external-path impairments, Midway fresh-recursion instability, and internal-observer stale periods. It reports episode count, day-clipped total duration, longest episode, and meaningful observed vantage. It explicitly separates user-impacting/actionable incidents from diagnostic-only Midway evidence and still posts a concise healthy-day report.
 

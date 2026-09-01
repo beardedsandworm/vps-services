@@ -204,7 +204,7 @@
           "values": [
             {
               "inputMethod": "json",
-              "json": "={{ (() => JSON.stringify({ title: `DNS operational report \u2014 ${$('Build Daily DNS Operational Report').first().json.report_key}`, description: $('Build Daily DNS Operational Report').first().json.text, color: 3447003 }))() }}"
+              "json": "={{ (() => {\n  const report = $('Build Daily DNS Operational Report').first().json;\n  const summaries = Object.fromEntries((report.summaries || []).map(item => [item.condition, item]));\n  const get = key => summaries[key] || { count: 0, total_ms: 0, longest_ms: 0, vantages: [] };\n  const duration = ms => {\n    const minutes = Math.max(0, Math.round(Number(ms || 0) / 60000));\n    if (minutes < 60) return `${minutes}m`;\n    const hours = Math.floor(minutes / 60);\n    return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;\n  };\n  const metric = (key, label) => {\n    const item = get(key);\n    if (!item.count) return `${label}: 0`;\n    const lines = [`${label}: ${item.count} \u2022 ${duration(item.total_ms)} total \u2022 ${duration(item.longest_ms)} longest`];\n    if (item.vantages?.length) lines.push(`Vantage: ${item.vantages.join(', ')}`);\n    return lines.join('\\n');\n  };\n  const actionable = [\n    ['dns_service_impact', 'Household DNS'],\n    ['individual_resolver_degradation', 'Resolver redundancy'],\n    ['lan_resolver_selection_failure', 'LAN resolver selection'],\n    ['external_path_impairment', 'External path'],\n  ].filter(([key]) => get(key).count).map(([, label]) => label);\n  const midway = get('midway_recursion_instability');\n  return JSON.stringify({\n    title: `Daily DNS Report for ${report.report_key}`,\n    color: 3447003,\n    fields: [\n      { name: '\ud83c\udfe0 Household DNS', value: metric('dns_service_impact', 'Incidents'), inline: false },\n      { name: '\ud83e\udde9 Resolver Health', value: [\n        metric('individual_resolver_degradation', 'Pi-hole degradation'),\n        metric('lan_resolver_selection_failure', 'LAN selection failures'),\n      ].join('\\n'), inline: false },\n      { name: '\ud83c\udf10 External Path', value: metric('external_path_impairment', 'Impairments'), inline: false },\n      { name: '\ud83e\udded Midway Recursion \u00b7 Diagnostic Only', value: midway.count\n        ? `${metric('midway_recursion_instability', 'Instability')}\\nInternal client impact: not established from this evidence`\n        : metric('midway_recursion_instability', 'Instability'), inline: false },\n      { name: '\ud83d\udc41 Observer Health', value: metric('internal_observer_stale', 'Stale periods'), inline: false },\n      { name: '\u2691 Actionable Attention', value: actionable.length ? actionable.join(' \u2022 ') : 'None', inline: false },\n    ],\n    ...(report.coverage_note ? { footer: { text: 'Coverage begins with the reporting upgrade; earlier durations are not inferred.' } } : {}),\n  });\n})() }}"
             }
           ]
         }
@@ -228,7 +228,7 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "notes": "Uses the existing #leto-reports webhook credential. Reports never use the alert credential."
+      "notes": "Daily reports use the blue cadence color and a structured Discord embed. Fields present the existing report data only; no correlation semantics are changed."
     },
     {
       "parameters": {
