@@ -47,6 +47,6 @@ sudo /opt/wormlogic/external-dns-monitor/current/verify.sh --diagnostic
 
 `--diagnostic` performs real DNS probes and prints an envelope without posting it. It does not mutate sequence state.
 
-## Migration boundary
+## Operational status
 
-The legacy `wormlogic-external-dns-health` service remains live until this service has passed preflight, diagnostic, manual service, timer-driven, and correlation delivery gates. Do not remove its token, config, units, or retained release evidence before that cutover is proved.
+`wormlogic-external-dns-monitor` is the authoritative external DNS observer. Its timer runs the immutable installed release; current observations are accepted by the DNS-correlation workflow, which alone promotes actionable transitions to the established operational-event ingress and alert-routing path.
