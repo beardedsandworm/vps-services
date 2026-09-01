@@ -7,8 +7,8 @@ This directory contains the authoritative Git-owned export of the active n8n wor
 - **Workflow:** `Correlate DNS Current Observations`
 - **n8n workflow ID:** `6aOCYolK7VbF4oit`
 - **Production webhook:** `POST /webhook/leto/dns-observations`
-- **Read-back version:** `e8d15433-2ed2-4963-938b-89dcc5e8ce07`
-- **Read-back timestamp:** `2026-09-01T14:23:09.795Z`
+- **Read-back version:** `e743dfc5-4c15-40fe-9b53-f720c6cbc477`
+- **Read-back timestamp:** `2026-09-01T14:38:34.748Z`
 - **Activation:** active
 
 The adjacent `correlate-dns-current-observations.json` is a source-normalized REST read-back of that workflow: it retains its identity, active graph, connections, and settings, while deliberately excluding runtime `staticData`. n8n remains authoritative for bounded episode history, report delivery state, and execution data; Git remains authoritative for the workflow graph. Its name deliberately describes its live responsibility; it is not an inactive draft.
@@ -17,7 +17,7 @@ The adjacent `correlate-dns-current-observations.json` is a source-normalized RE
 
 The workflow authenticates current observations using the existing n8n Header Auth credential, keeps bounded correlation and delivery state in workflow static data, and sends only actionable canonical transitions to the existing local Operational Event Ingress at `/webhook/leto/events`.
 
-It accepts the external observer source `external-dns-resilience` and the internal observer source `internal-dns-monitor`. The external observer's `midway_recursion` evidence is diagnostic-only: Midway-only instability is retained for correlation but never promoted to the Operational Event Ingress.
+It accepts the external observer source `external-dns-resilience` and the internal observer source `internal-dns-monitor`. The external observer's `midway_recursion` evidence and an `internal_observer_stale` period are diagnostic/reporting evidence: neither alone is promoted to the Operational Event Ingress or Discord alerts. Both remain visible in the corresponding report sections.
 
 The export contains n8n credential references only. It contains no credential values, ingress token, or Discord webhook.
 
