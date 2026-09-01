@@ -7,8 +7,8 @@ This directory contains the authoritative Git-owned export of the active n8n wor
 - **Workflow:** `Correlate DNS Current Observations`
 - **n8n workflow ID:** `6aOCYolK7VbF4oit`
 - **Production webhook:** `POST /webhook/leto/dns-observations`
-- **Read-back version:** `2cb339b1-48b6-4b63-ba46-d969ddf0c58d`
-- **Read-back timestamp:** `2026-09-01T13:46:33.220Z`
+- **Read-back version:** `64845b64-0898-40b0-8e2a-8cbca0431890`
+- **Read-back timestamp:** `2026-09-01T13:54:20.268Z`
 - **Activation:** active
 
 The adjacent `correlate-dns-current-observations.json` is the direct REST read-back of that workflow. Its name deliberately describes its live responsibility; it is not an inactive draft.
