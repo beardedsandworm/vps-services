@@ -7,11 +7,11 @@ This directory contains the authoritative Git-owned export of the active n8n wor
 - **Workflow:** `Correlate DNS Current Observations`
 - **n8n workflow ID:** `6aOCYolK7VbF4oit`
 - **Production webhook:** `POST /webhook/leto/dns-observations`
-- **Read-back version:** `64845b64-0898-40b0-8e2a-8cbca0431890`
-- **Read-back timestamp:** `2026-09-01T13:54:20.268Z`
+- **Read-back version:** `b8f99757-b2f7-4187-a493-3a8ce2bab183`
+- **Read-back timestamp:** `2026-09-01T14:01:58.356Z`
 - **Activation:** active
 
-The adjacent `correlate-dns-current-observations.json` is the direct REST read-back of that workflow. Its name deliberately describes its live responsibility; it is not an inactive draft.
+The adjacent `correlate-dns-current-observations.json` is a source-normalized REST read-back of that workflow: it retains its identity, active graph, connections, and settings, while deliberately excluding runtime `staticData`. n8n remains authoritative for bounded episode history, report delivery state, and execution data; Git remains authoritative for the workflow graph. Its name deliberately describes its live responsibility; it is not an inactive draft.
 
 ## Responsibility boundary
 
@@ -53,7 +53,9 @@ Use the established Hermes read-only n8n API credential mount. Do not copy, prin
 curl -fsS \
   -H "X-N8N-API-KEY: $(<"$N8N_LETO_API_KEY_FILE")" \
   "$N8N_API_BASE_URL/api/v1/workflows/6aOCYolK7VbF4oit" \
-  -o n8n/leto-operations/correlate-dns-current-observations.json
+  -o /tmp/correlate-dns-current-observations.live.json
 ```
+
+Normalize the read-back into the committed source export by retaining only `id`, `name`, `description`, `active`, `nodes`, `connections`, and `settings`. Do not commit `staticData`, execution data, delivery audit entries, or credential values.
 
 Before committing a refresh, read back and verify the workflow ID, active state, webhook path, node graph, connections, schedule, and credential references. A REST success alone is not proof of a correct graph.
