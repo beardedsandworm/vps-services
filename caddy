@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "${REPO_ROOT}"
+
+CADDY_ENV="${REPO_ROOT}/runtime/vps01/secrets/caddy.env"
+
+if [[ ! -f "${CADDY_ENV}" ]]; then
+  echo "Missing Caddy environment file: ${CADDY_ENV}" >&2
+  exit 1
+fi
+
+set -a
+source "${CADDY_ENV}"
+set +a
+
+: "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is not set in ${CADDY_ENV}}"
+
+case "${1:-}" in
+  validate)
+    exec ./dc exec \
+      -e CLOUDFLARE_API_TOKEN \
+      caddy \
+      caddy validate --config /etc/caddy/Caddyfile
+    ;;
+
+  reload)
+    exec ./dc exec \
+      -e CLOUDFLARE_API_TOKEN \
+      caddy \
+      caddy reload --config /etc/caddy/Caddyfile
+    ;;
+
+  *)
+    echo "Usage: ./caddy {validate|reload}" >&2
+    exit 1
+    ;;
+esac
