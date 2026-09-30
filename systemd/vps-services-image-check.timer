@@ -1,0 +1,12 @@
+[Unit]
+Description=Run vps-services image update check daily
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=15min
+AccuracySec=1min
+Persistent=true
+Unit=vps-services-image-check.service
+
+[Install]
+WantedBy=timers.target

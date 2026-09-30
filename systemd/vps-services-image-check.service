@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for newer vps-services images and notify
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=lightweight
+WorkingDirectory=/home/lightweight/vps-services
+Environment=MACHINE_ID=vps01
+ExecStart=/home/lightweight/vps-services/scripts/image-check.sh

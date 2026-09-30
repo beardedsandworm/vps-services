@@ -1,9 +1,9 @@
-# 🛰️ Wormlogic VPS Services
+# 🪱 Wormlogic VPS Services
 
-> Public edge + private backbone for the Wormlogic homelab
+**Host:** Heighliner (`vps01`, runtime hostname `wormlogic-vps01`)
+**Repository:** `beardedsandworm/vps-services`
 
-This repository defines the **VPS layer** of the Wormlogic infrastructure.  
-It acts as the **entry point, VPN hub, and public service host**, connecting the internet to a private homelab network.
+This repository owns Heighliner's Docker service definitions, versioned application configuration, encrypted service-secret sources and the service-specific monitoring components listed below. Host bootstrap and the current WireGuard peer/topology definitions live in `linux-environments`.
 
 ---
 
@@ -11,223 +11,106 @@ It acts as the **entry point, VPN hub, and public service host**, connecting the
 
 Wormlogic infrastructure is built around a few core principles:
 
-- 🔁 **Reproducible** — rebuild everything from scratch with minimal steps  
-- 🔐 **Private-first** — internal services are never exposed directly  
-- 🧩 **Composable** — clean separation between host, VPN, and services  
-- 📡 **Remote-native** — full LAN access from anywhere  
+- 🔁 **Reproducible** — rebuild everything from scratch with minimal steps
+- 🔐 **Private-first** — internal services are never exposed directly
+- 🧩 **Composable** — clean separation between host, VPN, and services
+- 📡 **Remote-native** — full LAN access from anywhere
 
----
+## Topology and ownership
 
-## 🏗️ Architecture
-
-```
-        Internet
-            │
-            ▼
-       VPS (vps01)
-   ┌─────────────────┐
-   │  WireGuard Hub  │
-   │  Caddy (public) │
-   │  Docker stack   │
-   └────────┬────────┘
-            │
-            ▼
-     WireGuard Tunnel
-            │
-            ▼
-     server01 (LAN)
-            │
-            ▼
-     Homelab Services
+```text
+administrative clients
+  → Heighliner / WireGuard hub (10.8.0.1)
+  → Midway (10.8.0.2)
+  → segmented home VLANs
 ```
 
----
+Arrakis (`server01`, `10.8.0.3`) and IX (`server02`, `10.8.0.4`) are host peers. Midway is the home router/gateway. Home-network addressing is documented in `linux-environments/docs/NETWORK.md`.
 
-## 🚀 Responsibilities
+Heighliner also hosts the PVP VPN network at `10.9.0.1`. That DNS/client path is distinct from the home Pi-hole/Unbound path.
 
-### 🔐 WireGuard Hub
-- Accepts connections from:
-  - laptop clients
-  - server01 (homelab gateway)
-- Routes traffic between peers
-- Enables remote LAN access
+## Compose stack
 
----
+The authoritative manifest is **`compose.yaml`**. Use the repository's `dc` wrapper: it anchors the project directory and loads `env/vps01.env`.
 
-### 🌐 Caddy (Public Edge)
-- Handles HTTPS (Let's Encrypt)
-- Routes domains to containers
-- Hosts public services
+| Service | Purpose / exposure |
+|---|---|
+| `caddy` | Built from the repository's Caddy image definition; publishes HTTP/HTTPS ports |
+| `n8n` | Operations automation; on internal Compose networks, reached through Caddy |
+| `postgres` | Application database; no direct host port binding |
+| `beszel` | Monitoring hub; no direct host port binding |
+| `pihole` | VPS/PVP DNS; DNS binds `127.0.0.1:1053` and `10.9.0.1:53`; UI binds those addresses on port 8081 |
+| `homepage-docker-proxy` | Homepage Docker visibility on `10.8.0.1:2375` |
 
----
+The Docker proxy disables POST and other unnecessary endpoints, but allowed container inspection can return environment values, including credentials. Treat its network access as sensitive; a read-only proxy is not a secret-safe interface.
 
-### 🐳 Docker Stack
-Defined in:
+## Repository layout
 
-```
-compose.yml
-```
-
-Runs:
-- Caddy
-- public-facing apps
-- future edge services
-
----
-
-### 🩺 Monitoring
-
-Located in:
-
-```
-monitoring/
-```
-
-- systemd timers
-- health checks
-- integrates with your notification system
-
----
-
-## 📂 Structure
-
-```
+```text
 vps-services/
-├── compose.yml
-├── caddy/
-│   ├── Caddyfile
-│   └── sites/
-├── wireguard/
-│   └── wg0.conf.example
-├── secrets/
-│   └── wg0.conf
-├── systemd/
-│   └── wormlogic-wireguard-forwarding.service
-├── monitoring/
-│   ├── scripts/
-│   └── systemd/
+├── compose.yaml
+├── Dockerfile.caddy
+├── dc
+├── caddy
+├── env/vps01.env.example
+├── config/
+│   ├── caddy/Caddyfile
+│   ├── caddy/{data,config}/
+│   ├── beszel/data/
+│   └── postgres/
+├── secrets/vps01/*.enc
 ├── scripts/
+│   ├── decrypt-secrets.sh
 │   ├── install.sh
 │   ├── deploy.sh
 │   └── status.sh
-└── .env.example
+├── services/
+│   ├── external-dns-monitor/
+│   └── pvp-dns/
+├── n8n/leto-operations/
+├── docs/OPS_LOCAL_RESOLUTION.md
+├── systemd/wormlogic-wireguard-forwarding.service
+└── wireguard/wg0.conf.example
 ```
 
----
+Runtime service state and decrypted secrets are separate from tracked deployment inputs.
 
-## ⚙️ Setup
+## Secrets and machine identity
 
-### 1. Clone
+Encrypted service sources are under `secrets/vps01/`:
 
-```
-git clone https://github.com/matthewjgarry/vps-services.git
-cd vps-services
-```
+- `caddy.env.enc`;
+- `n8n.env.enc`;
+- `postgres.env.enc`;
+- `pihole_web_password.txt.enc`;
+- `leto_ops_ingress_token.enc`.
 
----
+`scripts/decrypt-secrets.sh` materializes these files into `runtime/vps01/secrets/`, setting the directory to 0700 and files to 0600. Existing runtime secret files are overwritten. Never print decrypted contents or put plaintext credentials into the repository.
 
-### 2. Provide secrets
+## Operating and validation interfaces
 
-Create:
+On an already provisioned host, with `env/vps01.env` and materialized secrets in place, these checks are read-only:
 
-```
-secrets/wg0.conf
-```
-
-Based on:
-
-```
-wireguard/wg0.conf.example
-```
-
----
-
-### 3. Install
-
-```
-./scripts/install.sh
+```sh
+cd /home/lightweight/vps-services
+./dc config --quiet
+./dc config --services
+./dc ps
+git status --short
 ```
 
----
+The `caddy` helper provides `validate` and `reload`; `reload` applies changes to the running service. Do not use a raw environment or complete interpolated Compose dump as a diagnostic when checking only secret presence or service names.
 
-## 🔁 WireGuard Forwarding
+Legacy scripts:
 
-Handled by:
+- `scripts/install.sh` expects plaintext `secrets/wg0.conf`, installs/starts WireGuard and a forwarding unit, then invokes bare `docker compose up -d`.
+- `scripts/deploy.sh` installs that plaintext WireGuard file, restarts `wg-quick@wg0` and invokes bare Compose.
 
-```
-systemd/wormlogic-wireguard-forwarding.service
-```
+## Monitoring and automation
 
-Ensures:
+- [`services/external-dns-monitor/README.md`](services/external-dns-monitor/README.md) owns the external DNS monitor's installation, immutable-release and verification contract.
+- [`services/pvp-dns/README.md`](services/pvp-dns/README.md) describes the VPS/PVP DNS component.
+- [`n8n/leto-operations/README.md`](n8n/leto-operations/README.md) describes the versioned operations workflow material.
+- Beszel runs as a Compose service; Beszel Agent runs separately on the host.
 
-- ip_forward enabled
-- wg0 ↔ wg0 routing allowed
-- Docker does not block VPN traffic
-
----
-
-## 🔍 Verification
-
-```
-sudo wg show
-cat /proc/sys/net/ipv4/ip_forward
-docker ps
-```
-
----
-
-## 🔗 Integration
-
-### linux-environments
-- laptop01 → VPN client
-- server01 → LAN gateway
-
-### docker-services
-- runs homelab services
-- accessed via VPN + internal DNS
-
----
-
-## 🧭 Traffic Flow
-
-```
-laptop01
-  ↓
-WireGuard
-  ↓
-vps01
-  ↓
-WireGuard
-  ↓
-server01
-  ↓
-LAN services
-```
-
----
-
-## 🔐 Security Model
-
-- No direct LAN exposure
-- VPN required for access
-- Public services isolated
-- Internal DNS only available over VPN
-
----
-
-## 🚧 Future
-
-- automated peer management
-- VPN monitoring integration
-- multi-VPS failover
-- metrics/observability
-
----
-
-## 🧬 Wormlogic
-
-```
-{~} wormlogic
-```
-
-Minimal. Reproducible. Automated.
+Heighliner serves `ops.wormlogic.com` locally. Preserve the local-resolution requirement in [`docs/OPS_LOCAL_RESOLUTION.md`](docs/OPS_LOCAL_RESOLUTION.md) during recovery.

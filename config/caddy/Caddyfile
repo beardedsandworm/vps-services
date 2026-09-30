@@ -10,3 +10,7 @@ ops.wormlogic.com {
 monitor.wormlogic.com {
 	reverse_proxy beszel:8090
 }
+
+pihole3.wormlogic.com {
+        reverse_proxy 10.9.0.1:8081
+}
