@@ -1,6 +1,0 @@
-[Interface]
-Address = 10.8.0.1/24
-ListenPort = 51820
-PrivateKey = REPLACE
-
-# peers go here
