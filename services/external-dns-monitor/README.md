@@ -12,7 +12,7 @@ Header: X-Leto-Operations-Token
 Token: /home/lightweight/vps-services/runtime/vps01/secrets/leto_ops_ingress_token
 ```
 
-The envelope is contract version `1.0` with source `external-dns-resilience`, a persisted monotonic sequence, execution host/vantage, and boolean checks for both Pi-holes, the aggregate external path, and fresh direct Midway recursion.
+The envelope is contract version `1.0` with source `external-dns-resilience`, a persisted monotonic sequence, execution host/vantage, and boolean checks for both Pi-holes, the aggregate Heighliner-to-home DNS path, and fresh direct Midway recursion.
 
 Heighliner is an **external/WireGuard vantage**. Its results prove an external transaction through its route, the reachable home path, and resolver response; they do not prove LAN DHCP resolver selection or local switching. The direct Midway check is explicitly diagnostic: correlation keeps Midway-only instability unalerted while internal client-facing evidence remains healthy.
 
@@ -49,4 +49,4 @@ sudo /opt/wormlogic/external-dns-monitor/current/verify.sh --diagnostic
 
 ## Operational status
 
-`wormlogic-external-dns-monitor` is the authoritative external DNS observer. Its timer runs the immutable installed release; current observations are accepted by the DNS-correlation workflow, which alone promotes actionable transitions to the established operational-event ingress and alert-routing path.
+`wormlogic-external-dns-monitor` is the authoritative Heighliner external-vantage observer for the DNS-correlation workflow. Its timer runs the immutable installed release; current observations are accepted by the DNS-correlation workflow, which alone promotes actionable transitions to the established operational-event ingress and alert-routing path.
