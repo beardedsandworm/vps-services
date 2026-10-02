@@ -15,6 +15,9 @@ APPARMOR_LOCAL="/etc/apparmor.d/local/usr.sbin.unbound"
 UPDATE_SERVICE="wormlogic-pvp-dns-update.service"
 UPDATE_TIMER="wormlogic-pvp-dns-update.timer"
 
+DNS_TEST_DOMAIN="example.com"
+DNS_TEST_PORT="5335"
+
 if [[ $EUID -eq 0 ]]; then
     SUDO=()
 else
@@ -49,6 +52,7 @@ packages=(
     ca-certificates
     ethtool
     apparmor
+    dnsutils
 )
 
 missing_packages=()
@@ -211,6 +215,62 @@ fi
 
 "${SUDO[@]}" unbound-checkconf
 
+echo "✓ Unbound configuration is valid"
+echo "✓ Unbound policy routing uses wg-proton"
+
+
+# --------------------------------------------------
+# End-to-end DNS verification
+# --------------------------------------------------
+
+echo
+echo "=== Verifying recursive DNS resolution ==="
+
+DNS_TEST_OK=0
+DNS_TEST_SERVER=""
+
+for server in \
+    127.0.0.1 \
+    172.21.0.1
+do
+    answer="$(
+        dig \
+            @"$server" \
+            -p "$DNS_TEST_PORT" \
+            "$DNS_TEST_DOMAIN" \
+            A \
+            +time=5 \
+            +tries=1 \
+            +short \
+            2>/dev/null || true
+    )"
+
+    if [[ -n "$answer" ]]; then
+        DNS_TEST_OK=1
+        DNS_TEST_SERVER="$server"
+        break
+    fi
+done
+
+if (( ! DNS_TEST_OK )); then
+    echo "✗ Unbound did not resolve $DNS_TEST_DOMAIN"
+    echo "  Tested:"
+    echo "    127.0.0.1:$DNS_TEST_PORT"
+    echo "    172.21.0.1:$DNS_TEST_PORT"
+    echo
+    "${SUDO[@]}" systemctl --no-pager --full status unbound.service || true
+    exit 1
+fi
+
+echo "✓ Recursive DNS resolution succeeded"
+echo "  Resolver: $DNS_TEST_SERVER:$DNS_TEST_PORT"
+echo "  Query:    $DNS_TEST_DOMAIN A"
+
+
+# --------------------------------------------------
+# Installation summary
+# --------------------------------------------------
+
 echo
 echo "✓ PVP DNS installation complete"
 echo "  Unbound config:    $UNBOUND_CONF"
@@ -218,6 +278,9 @@ echo "  DNSBL module:      $RUNTIME_DIR/dnsbl_module.py"
 echo "  DNSBL database:    $DB_FILE"
 echo "  AppArmor override: $APPARMOR_LOCAL"
 echo "  GRO:                disabled on eth0"
+echo "  PVP route:          wg-proton"
+echo "  DNS test:           $DNS_TEST_SERVER:$DNS_TEST_PORT"
 echo "  Update timer:       $UPDATE_TIMER"
 echo
+
 "${SUDO[@]}" systemctl list-timers "$UPDATE_TIMER" --no-pager

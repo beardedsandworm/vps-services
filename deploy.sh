@@ -8,10 +8,24 @@ REPO_NAME="vps-services"
 DEPLOY_KEY="${HOME}/.ssh/id_ed25519_git_${REPO_NAME}"
 DEPLOY_KEY_PUB="${DEPLOY_KEY}.pub"
 
+ENV_RECOVERY_FILE="$REPO_ROOT/secrets/$MACHINE_ID/env/vps01.env.enc"
+ENV_FILE="$REPO_ROOT/env/vps01.env"
+
+RUNTIME_SECRETS_DIR="$REPO_ROOT/runtime/$MACHINE_ID/secrets"
+ENCRYPTED_SECRETS_DIR="$REPO_ROOT/secrets/$MACHINE_ID"
+
 IMAGE_CHECK_SERVICE="vps-services-image-check.service"
 IMAGE_CHECK_TIMER="vps-services-image-check.timer"
 
+PIHOLE_BRIDGE="br-pihole"
+PIHOLE_BRIDGE_ADDRESS="172.21.0.1/24"
+
 cd "$REPO_ROOT"
+
+
+# --------------------------------------------------
+# Helpers
+# --------------------------------------------------
 
 die() {
     printf '✗ %s\n' "$*" >&2
@@ -28,6 +42,15 @@ require_file() {
     [[ -f "$1" ]] || die "Required file not found: $1"
 }
 
+require_nonempty_file() {
+    [[ -s "$1" ]] || die "Required file is missing or empty: $1"
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 \
+        || die "Required command not found: $1"
+}
+
 
 # --------------------------------------------------
 # Validate repository
@@ -42,6 +65,18 @@ require_file "$REPO_ROOT/systemd/$IMAGE_CHECK_SERVICE"
 require_file "$REPO_ROOT/systemd/$IMAGE_CHECK_TIMER"
 require_file "$REPO_ROOT/dc"
 require_file "$REPO_ROOT/compose.yaml"
+require_file "$ENV_RECOVERY_FILE"
+
+require_command git
+require_command grep
+require_command install
+require_command ip
+require_command sops
+require_command ssh-keygen
+require_command systemctl
+
+[[ -x "$REPO_ROOT/dc" ]] \
+    || die "Compose wrapper is not executable: $REPO_ROOT/dc"
 
 git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     || die "$REPO_ROOT is not a Git repository"
@@ -57,91 +92,96 @@ step "Decrypting service secrets"
 
 bash "$REPO_ROOT/scripts/decrypt-secrets.sh"
 
-printf '✓ Secrets materialized\n'
+printf '✓ Runtime secrets materialized\n'
 
 
 # --------------------------------------------------
-# PVP DNS
+# Compose environment
 # --------------------------------------------------
 
-step "Installing PVP DNS"
+step "Restoring Heighliner Compose environment"
 
-bash "$REPO_ROOT/services/pvp-dns/install.sh"
+mkdir -p "$(dirname "$ENV_FILE")"
 
-printf '✓ PVP DNS installed and validated\n'
+ENV_TMP="$(mktemp)"
 
+cleanup_env_tmp() {
+    rm -f "$ENV_TMP"
+}
 
-# --------------------------------------------------
-# Persistent boot ordering
-# --------------------------------------------------
+trap cleanup_env_tmp EXIT
 
-step "Installing Heighliner boot dependencies"
+if ! sops --decrypt \
+    --input-type json \
+    --output-type binary \
+    "$ENV_RECOVERY_FILE" \
+    > "$ENV_TMP"; then
 
-#
-# Pi-hole publishes ports specifically on 10.9.0.1, which belongs to wg-pvp.
-# Docker must therefore not start until wg-pvp exists.
-#
+    die "Failed to decrypt $ENV_RECOVERY_FILE"
+fi
 
-sudo install -d -m 0755 \
-    /etc/systemd/system/wg-quick@wg-pvp.service.d
+require_nonempty_file "$ENV_TMP"
 
-cat <<'DROPIN' | sudo tee \
-    /etc/systemd/system/wg-quick@wg-pvp.service.d/wormlogic-ordering.conf \
-    >/dev/null
-[Unit]
-Wants=network-online.target
-After=network-online.target
-Before=docker.service
-DROPIN
+install -m 0600 \
+    "$ENV_TMP" \
+    "$ENV_FILE"
 
-sudo install -d -m 0755 \
-    /etc/systemd/system/docker.service.d
+rm -f "$ENV_TMP"
+trap - EXIT
 
-cat <<'DROPIN' | sudo tee \
-    /etc/systemd/system/docker.service.d/wormlogic-pihole.conf \
-    >/dev/null
-[Unit]
-Requires=wg-quick@wg-pvp.service
-After=wg-quick@wg-pvp.service
-DROPIN
-
-#
-# Unbound's PVP DNS path depends on wg-proton and on the PVP DNS host-state
-# reconciliation service installed by services/pvp-dns/install.sh.
-#
-
-sudo install -d -m 0755 \
-    /etc/systemd/system/unbound.service.d
-
-cat <<'DROPIN' | sudo tee \
-    /etc/systemd/system/unbound.service.d/wormlogic-pvp.conf \
-    >/dev/null
-[Unit]
-Requires=wg-quick@wg-proton.service
-After=wg-quick@wg-proton.service
-Wants=wormlogic-pvp-dns-update.service
-After=wormlogic-pvp-dns-update.service
-DROPIN
-
-sudo systemctl daemon-reload
-
-# Host bootstrap owns the actual WireGuard configuration.
-# These ensure the already-configured interfaces participate in boot.
-sudo systemctl enable wg-quick@wg-pvp.service
-sudo systemctl enable wg-quick@wg-proton.service
-
-printf '✓ wg-pvp will precede Docker/Pi-hole at boot\n'
-printf '✓ wg-proton and PVP DNS state will precede Unbound at boot\n'
+printf '✓ Compose environment restored: %s\n' "$ENV_FILE"
 
 
 # --------------------------------------------------
-# Ensure required tunnels are live for this deployment
+# Validate recovered state
+# --------------------------------------------------
+
+step "Validating recovered configuration"
+
+require_nonempty_file "$ENV_FILE"
+
+shopt -s nullglob
+ENCRYPTED_SECRET_FILES=(
+    "$ENCRYPTED_SECRETS_DIR"/*.enc
+)
+shopt -u nullglob
+
+((${#ENCRYPTED_SECRET_FILES[@]} > 0)) \
+    || die "No encrypted runtime secrets found in $ENCRYPTED_SECRETS_DIR"
+
+for encrypted_secret in "${ENCRYPTED_SECRET_FILES[@]}"; do
+    secret_name="$(basename "$encrypted_secret" .enc)"
+
+    require_nonempty_file \
+        "$RUNTIME_SECRETS_DIR/$secret_name"
+done
+
+printf '✓ All encrypted runtime secrets materialized successfully\n'
+
+if ! "$REPO_ROOT/dc" config >/dev/null; then
+    die "Docker Compose configuration could not be rendered"
+fi
+
+printf '✓ Docker Compose configuration renders successfully\n'
+
+
+# --------------------------------------------------
+# Ensure required tunnels are live
 # --------------------------------------------------
 
 step "Ensuring Heighliner tunnels are active"
 
-sudo systemctl start wg-quick@wg-pvp.service
-sudo systemctl start wg-quick@wg-proton.service
+#
+# linux-environments owns the WireGuard configuration.
+# vps-services depends on these tunnels and refuses to
+# continue unless both are available.
+#
+
+sudo systemctl enable --now wg-quick@wg-pvp.service
+sudo systemctl enable --now wg-quick@wg-proton.service
+
+ip -4 addr show wg-pvp >/dev/null 2>&1 \
+    || die "wg-pvp is not active"
 
 ip -4 addr show wg-pvp | grep -q '10\.9\.0\.1/24' \
     || die "wg-pvp is not configured with 10.9.0.1/24"
@@ -170,6 +210,11 @@ printf '✓ Caddy built\n'
 
 step "Starting vps-services"
 
+#
+# Docker must start before PVP DNS is installed because
+# Unbound listens on the host side of the Pi-hole bridge.
+#
+
 "$REPO_ROOT/dc" up -d
 
 printf '✓ Docker services started\n'
@@ -178,12 +223,124 @@ printf '✓ Docker services started\n'
 
 
 # --------------------------------------------------
+# Verify Pi-hole bridge
+# --------------------------------------------------
+
+step "Verifying Pi-hole Docker bridge"
+
+ip -4 addr show "$PIHOLE_BRIDGE" >/dev/null 2>&1 \
+    || die "Pi-hole Docker bridge is not active: $PIHOLE_BRIDGE"
+
+ip -4 addr show "$PIHOLE_BRIDGE" |
+    grep -Fq "$PIHOLE_BRIDGE_ADDRESS" \
+    || die "$PIHOLE_BRIDGE does not have $PIHOLE_BRIDGE_ADDRESS"
+
+printf '✓ %s active at %s\n' \
+    "$PIHOLE_BRIDGE" \
+    "$PIHOLE_BRIDGE_ADDRESS"
+
+
+# --------------------------------------------------
+# PVP DNS / Unbound
+# --------------------------------------------------
+
+step "Installing PVP DNS"
+
+#
+# PVP DNS and its Unbound integration are service-layer
+# responsibilities owned by vps-services.
+#
+# Dependencies at this point:
+#
+#   wg-proton
+#       ↓
+#   Docker / br-pihole
+#       ↓
+#   Unbound / PVP DNS
+#
+
+bash "$REPO_ROOT/services/pvp-dns/install.sh"
+
+if ! sudo systemctl is-active --quiet unbound.service; then
+    sudo systemctl status unbound.service --no-pager || true
+    die "Unbound is not active after PVP DNS installation"
+fi
+
+printf '✓ PVP DNS installed and validated\n'
+printf '✓ Unbound active\n'
+
+
+# --------------------------------------------------
+# Persistent boot ordering
+# --------------------------------------------------
+
+step "Installing Heighliner boot dependencies"
+
+#
+# Pi-hole publishes ports specifically on 10.9.0.1, which
+# belongs to wg-pvp. Docker must not start until wg-pvp exists.
+#
+
+sudo install -d -m 0755 \
+    /etc/systemd/system/wg-quick@wg-pvp.service.d
+
+cat <<'DROPIN' | sudo tee \
+    /etc/systemd/system/wg-quick@wg-pvp.service.d/wormlogic-ordering.conf \
+    >/dev/null
+[Unit]
+Wants=network-online.target
+After=network-online.target
+Before=docker.service
+DROPIN
+
+sudo install -d -m 0755 \
+    /etc/systemd/system/docker.service.d
+
+cat <<'DROPIN' | sudo tee \
+    /etc/systemd/system/docker.service.d/wormlogic-pihole.conf \
+    >/dev/null
+[Unit]
+Requires=wg-quick@wg-pvp.service
+After=wg-quick@wg-pvp.service
+DROPIN
+
+#
+# Unbound's PVP DNS path depends on wg-proton and on
+# the PVP DNS host-state reconciliation service.
+#
+# Docker is also required because Unbound binds to
+# the host side of br-pihole at 172.21.0.1:5335.
+#
+
+sudo install -d -m 0755 \
+    /etc/systemd/system/unbound.service.d
+
+cat <<'DROPIN' | sudo tee \
+    /etc/systemd/system/unbound.service.d/wormlogic-pvp.conf \
+    >/dev/null
+[Unit]
+Requires=wg-quick@wg-proton.service
+After=wg-quick@wg-proton.service
+Wants=wormlogic-pvp-dns-update.service
+After=wormlogic-pvp-dns-update.service
+DROPIN
+
+sudo systemctl daemon-reload
+
+printf '✓ wg-pvp will precede Docker/Pi-hole at boot\n'
+printf '✓ wg-proton and PVP DNS state will precede Unbound at boot\n'
+
+
+# --------------------------------------------------
 # External DNS monitor
 # --------------------------------------------------
 
 step "Installing external DNS monitor"
 
-sudo bash "$REPO_ROOT/services/external-dns-monitor/install.sh" "$(git -C "$REPO_ROOT" rev-parse HEAD)" --enable-timer
+sudo bash \
+    "$REPO_ROOT/services/external-dns-monitor/install.sh" \
+    "$(git -C "$REPO_ROOT" rev-parse HEAD)" \
+    --enable-timer
 
 printf '✓ External DNS monitor installed\n'
 
@@ -246,9 +403,12 @@ chmod 644 "$DEPLOY_KEY_PUB"
 # Ensure GitHub origin uses SSH
 # --------------------------------------------------
 
-ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+ORIGIN_URL="$(
+    git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true
+)"
 
-[[ -n "$ORIGIN_URL" ]] || die "Git remote 'origin' is not configured"
+[[ -n "$ORIGIN_URL" ]] \
+    || die "Git remote 'origin' is not configured"
 
 case "$ORIGIN_URL" in
     git@github.com:*)
@@ -283,7 +443,9 @@ git -C "$REPO_ROOT" config --local \
 
 printf '✓ %s is bound to its repo-specific deploy key\n' "$REPO_NAME"
 
-FINAL_ORIGIN="$(git -C "$REPO_ROOT" remote get-url origin)"
+FINAL_ORIGIN="$(
+    git -C "$REPO_ROOT" remote get-url origin
+)"
 
 case "$FINAL_ORIGIN" in
     git@github.com:*)
@@ -303,6 +465,12 @@ step "Heighliner deployment complete"
 
 printf 'Repository:          %s\n' "$REPO_ROOT"
 printf 'Machine:             %s\n' "$MACHINE_ID"
+printf 'Compose environment: %s\n' "$ENV_FILE"
+printf 'Runtime secrets:     %s\n' "$RUNTIME_SECRETS_DIR"
+printf 'wg-pvp:              %s\n' "10.9.0.1/24"
+printf 'wg-proton:           %s\n' "active"
+printf 'Pi-hole bridge:      %s\n' "$PIHOLE_BRIDGE_ADDRESS"
+printf 'Unbound:             %s\n' "active"
 printf 'Git origin:          %s\n' "$FINAL_ORIGIN"
 printf 'Deploy private key:  %s\n' "$DEPLOY_KEY"
 printf 'Deploy public key:   %s\n' "$DEPLOY_KEY_PUB"
