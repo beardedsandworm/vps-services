@@ -36,15 +36,19 @@ Four principles guide the repository:
 ```text
 Host ready
     ↓
-Recover secrets
+Recover service secrets + Compose environment
     ↓
-Verify network prerequisites
+Validate recovered configuration
     ↓
-Install host-integrated services
+Verify required WireGuard prerequisites
     ↓
 Build required images
     ↓
 Reconcile containers
+    ↓
+Verify br-pihole exists
+    ↓
+Install / reconcile PVP DNS + Unbound
     ↓
 Install monitoring
     ↓
@@ -54,13 +58,14 @@ Observe continuously
 Operationally:
 
 ```text
-Define → Decrypt → Validate → Deploy → Observe → Correct → Recover
+Define → Decrypt → Validate → Deploy → Verify → Observe → Correct → Recover
 ```
 
 * **Define** → Compose, Caddy, DNS and service configuration
-* **Decrypt** → SOPS-encrypted service secrets
-* **Validate** → confirm required host networking exists
-* **Deploy** → repo-owned installers + Docker Compose
+* **Decrypt** → SOPS-encrypted runtime secrets and the recoverable Compose environment
+* **Validate** → confirm recovered files, Compose rendering and required host networking
+* **Deploy** → Docker Compose first where container-created network state is a prerequisite, then repo-owned installers
+* **Verify** → prove the Pi-hole bridge, Unbound routing and real DNS resolution
 * **Observe** → timers, health checks and external monitoring
 * **Correct** → update Git when desired state changes
 * **Recover** → rebuild from repo + encrypted state + mutable-state backups
@@ -75,7 +80,7 @@ Define → Decrypt → Validate → Deploy → Observe → Correct → Recover
 | --- | --- | --- | --- |
 | 🚀 Heighliner | `vps01` | Ubuntu | Public VPS / network edge / operations host |
 
-Host bootstrap and machine-level configuration are owned by:
+Host bootstrap and machine-level prerequisites are owned by:
 
 ```text
 linux-environments
@@ -88,13 +93,14 @@ That includes:
 * machine identity
 * SSH identity
 * age identity
-* WireGuard interfaces
-* policy routing
+* WireGuard interface definitions and recovery
+* policy-routing tables
 * nftables / sysctl
-* host boot ordering
-* host-level system services
+* base host networking and boot prerequisites
 
-`vps-services` begins where the Heighliner host bootstrap ends.
+`vps-services` begins where those host prerequisites end.
+
+Repo-owned services may install their own systemd units and service-specific ordering drop-ins, but they consume the WireGuard interfaces and routing state established by `linux-environments`; they do not redefine those host facilities.
 
 ---
 
@@ -102,6 +108,7 @@ That includes:
 
 ```text
 vps-services/
+├── .sops.yaml
 ├── compose.yaml
 ├── deploy.sh
 ├── dc
@@ -116,7 +123,8 @@ vps-services/
 │   └── ...
 │
 ├── env/
-│   └── vps01.env
+│   ├── vps01.env
+│   └── vps01.env.example
 │
 ├── scripts/
 │   ├── decrypt-secrets.sh
@@ -129,7 +137,9 @@ vps-services/
 │
 ├── secrets/
 │   └── vps01/
-│       └── *.enc
+│       ├── *.enc
+│       └── env/
+│           └── vps01.env.enc
 │
 ├── runtime/
 │   └── vps01/
@@ -161,18 +171,21 @@ That includes:
 * Pi-hole application configuration
 * n8n / PostgreSQL service definitions
 * monitoring integration
-* PVP DNS installation logic
+* PVP DNS and Unbound service configuration
+* PVP DNS update/reconciliation units
+* service-specific systemd ordering needed by repo-owned workloads
 * external DNS monitor integration
 * deployment scripts
 * systemd units associated with repo-owned services
 * SOPS-encrypted service secrets
+* deterministic Compose-environment recovery
 * environment examples and non-secret deployment metadata
 
 ---
 
 ## 🖥️ Host State Lives Elsewhere
 
-The following belong to `linux-environments`, not this repository:
+The WireGuard authority belongs to `linux-environments`, including:
 
 ```text
 /etc/wireguard/wg0.conf
@@ -182,19 +195,30 @@ The following belong to `linux-environments`, not this repository:
 
 as well as:
 
-* WireGuard interface creation
+* WireGuard interface creation and identity recovery
 * forwarding configuration
 * policy-routing tables
 * nftables rules
 * sysctl configuration
-* `wormlogic-pvp.service`
-* host boot dependencies
 * machine SSH credentials
 * host age recovery identity
+* base host networking prerequisites
 
-`vps-services` may **require and validate** those facilities.
+`vps-services` may **start, require and validate** those already-defined interfaces when reconciling its own services.
 
-It should not duplicate their configuration.
+The boundary is:
+
+```text
+linux-environments
+        ↓
+provide wg0 / wg-pvp / wg-proton + routing primitives
+
+vps-services
+        ↓
+provide Pi-hole / PVP DNS / Unbound / Caddy / application behavior
+```
+
+Service-specific units and ordering that exist solely to make `vps-services` workloads operate correctly remain with `vps-services`.
 
 ---
 
@@ -292,11 +316,12 @@ and proxies it to:
 10.9.0.1:8081
 ```
 
-This creates an important host dependency:
+This creates two distinct dependencies:
 
-> `wg-pvp` must exist before services attempt to bind to `10.9.0.1`.
+1. `wg-pvp` must exist before Docker/Pi-hole can bind published services to `10.9.0.1`.
+2. Docker must create `br-pihole` before the PVP DNS installer can configure and verify Unbound on the host side of that bridge.
 
-That dependency is a host configuration concern and ultimately belongs in `linux-environments`.
+The `wg-pvp` interface itself is host-owned. The service-specific deployment order is enforced by `vps-services`.
 
 ---
 
@@ -365,16 +390,18 @@ wg0 / wg-pvp / wg-proton
         ↓
 policy routing / nftables / sysctl
         ↓
-host ready
+host networking ready
 
 vps-services
         ↓
-Pi-hole / Unbound / Caddy / application services
+Pi-hole / Unbound / PVP DNS / Caddy / application services
+        ↓
+service-specific systemd units + reconciliation
 ```
 
-`vps-services` consumes host networking.
+`vps-services` consumes the host networking primitives.
 
-It does not become the authority for it.
+It remains authoritative for the application/service behavior built on top of them, including PVP DNS and Unbound configuration.
 
 ---
 
@@ -391,8 +418,6 @@ Pi-hole3
     ↓
 Unbound
     ↓
-encrypted upstream DNS
-    ↓
 wg-proton
     ↓
 Internet
@@ -404,7 +429,7 @@ The repo-owned installer lives under:
 services/pvp-dns/
 ```
 
-It manages the application-side DNS environment, including:
+It manages the service-side DNS environment, including:
 
 * Unbound configuration
 * DNS blocklist state
@@ -412,6 +437,7 @@ It manages the application-side DNS environment, including:
 * AppArmor integration
 * database rebuilds
 * DNS update automation
+* PVP DNS host-state reconciliation
 * runtime validation
 
 It installs:
@@ -421,29 +447,42 @@ wormlogic-pvp-dns-update.service
 wormlogic-pvp-dns-update.timer
 ```
 
-and verifies the DNS path after installation.
+The installer validates more than process state. It checks:
+
+* GRO state on `eth0`
+* Unbound's policy route through `wg-proton`
+* blocklist database creation
+* `unbound-checkconf`
+* Unbound service health
+* actual recursive DNS resolution
 
 ---
 
-## Host Prerequisites
+## Runtime Prerequisites
 
-The PVP DNS installer depends on host state already being correct.
+The PVP DNS installer depends on both host-provided networking and Docker-created network state.
 
 Before it can succeed:
 
 ```text
-wg-proton
+wg-proton active
+        ↓
+PVP policy route available
+        ↓
+Docker running
+        ↓
+br-pihole = 172.21.0.1/24
+        ↓
+PVP DNS / Unbound install + verification
 ```
 
-must be active, and the PVP policy-routing layer must provide a valid route through the Proton tunnel.
+The WireGuard interfaces and PVP routing primitives belong to `linux-environments`.
 
-That routing state belongs to:
+The Pi-hole bridge is created by the Compose deployment in `vps-services`.
 
-```text
-linux-environments
-```
+For that reason, `deploy.sh` starts/reconciles Docker and explicitly verifies `br-pihole` before invoking `services/pvp-dns/install.sh`.
 
-The deployment layer should validate this dependency rather than reproduce it.
+The bridge dependency is **not** encoded as `Requires=docker.service` / `After=docker.service` on `unbound.service`; that direct systemd dependency causes a failed boot dependency on Heighliner. Deployment handles the bridge prerequisite procedurally instead.
 
 ---
 
@@ -467,7 +506,7 @@ The age identity itself belongs to the host recovery workflow in `linux-environm
 
 ## Runtime Secrets
 
-Encrypted files are materialized beneath:
+Top-level encrypted service-secret files are materialized beneath:
 
 ```text
 runtime/vps01/secrets/
@@ -493,6 +532,36 @@ rather than from a Docker secret mount.
 
 ---
 
+## Compose Environment Recovery
+
+The Compose environment has its own deterministic recovery path:
+
+```text
+secrets/vps01/env/vps01.env.enc
+        ↓
+SOPS binary decrypt in deploy.sh
+        ↓
+env/vps01.env
+```
+
+`deploy.sh` restores the file with mode `0600`, validates that it is non-empty, validates the materialized runtime secrets, and renders:
+
+```bash
+./dc config
+```
+
+before starting services.
+
+The current:
+
+```text
+env/vps01.env.example
+```
+
+contains the full non-sensitive deployment values and intentionally matches the current `env/vps01.env`. The encrypted recovery copy exists to keep rebuild behavior deterministic and consistent with the other service repositories; it is not evidence that the current env file contains secrets.
+
+---
+
 ## Secret Ownership
 
 Standalone service installers do **not**:
@@ -502,7 +571,7 @@ Standalone service installers do **not**:
 * decrypt secrets
 * create their own secret stores
 
-The contract is:
+Runtime service-secret flow:
 
 ```text
 secrets/vps01/*.enc
@@ -514,7 +583,17 @@ runtime/vps01/secrets/
 service installer consumes runtime secret
 ```
 
-This keeps one service-secret authority for Heighliner.
+Compose-environment flow:
+
+```text
+secrets/vps01/env/vps01.env.enc
+        ↓
+deploy.sh
+        ↓
+env/vps01.env
+```
+
+This keeps recovery authority centralized while allowing service installers to consume already-materialized state.
 
 ---
 
@@ -556,22 +635,34 @@ The repo-owned deployment entry point is:
 ./deploy.sh
 ```
 
-The deployment workflow is intended to reconcile the complete VPS application layer.
+The deployment workflow reconciles the reproducible VPS application/configuration layer. Mutable application data still requires its own backup/restore path.
 
-Conceptually:
+Current order:
 
 ```text
-validate repository
+validate repository + required encrypted recovery sources
         ↓
-decrypt secrets
+decrypt top-level runtime secrets
         ↓
-verify required host networking
+restore env/vps01.env
         ↓
-install / reconcile PVP DNS
+validate recovered files
+        ↓
+render ./dc config
+        ↓
+start / verify wg-pvp + wg-proton
         ↓
 build Caddy
         ↓
 ./dc up -d
+        ↓
+verify br-pihole = 172.21.0.1/24
+        ↓
+install / reconcile PVP DNS + Unbound
+        ↓
+verify Unbound + real DNS resolution
+        ↓
+install service-specific boot-order drop-ins
         ↓
 install external DNS monitoring
         ↓
@@ -583,12 +674,22 @@ bind Git repository to deploy key
         ↓
 display public deploy key
         ↓
-Press Enter to continue
+prompt only when running interactively
 ```
 
-Host networking must already be functional before service reconciliation.
+The important dependency is:
 
-`deploy.sh` may start or verify required host units, but the actual definitions remain owned by `linux-environments`.
+```text
+WireGuard prerequisites
+        ↓
+Docker / br-pihole
+        ↓
+PVP DNS / Unbound
+```
+
+`deploy.sh` may enable/start the already-defined WireGuard units so the service layer can reconcile itself, but the WireGuard configuration and routing primitives remain owned by `linux-environments`.
+
+The deployment intentionally does **not** add `Requires=docker.service` or `After=docker.service` to Unbound. The bridge dependency is validated procedurally after Compose starts because the direct systemd dependency causes a failed boot dependency on Heighliner.
 
 ---
 
@@ -671,7 +772,7 @@ Caddy runtime storage is not.
 
 Heighliner is the natural location for external DNS health monitoring because it provides an observation point outside the home network.
 
-The monitor checks public DNS behavior independently from the services it is validating.
+The monitor observes the configured home DNS path from Heighliner's external vantage point. That makes it independent from the internal observer, but it does **not** prove every public resolver, hostname path, ISP, or client network.
 
 Repo integration lives under:
 
@@ -682,14 +783,14 @@ services/external-dns-monitor/
 The installed service uses an immutable release path beneath:
 
 ```text
-/opt/wormlogic/external-dns-health/
+/opt/wormlogic/external-dns-monitor/
 ```
 
 rather than executing directly from a mutable Git checkout.
 
 This keeps runtime execution pinned to an installed release while allowing the repository to own installation and reconciliation.
 
-The service reports into the central operations pipeline rather than owning alert-routing policy itself.
+The service reports observations into the central operations pipeline rather than owning correlation or alert-routing policy itself.
 
 ---
 
@@ -706,6 +807,19 @@ vps-services-image-check.timer
 
 along with service-specific health and update timers such as the PVP DNS updater and external DNS monitor.
 
+The image checker follows the Wormlogic notification policy:
+
+```text
+updates available
+    → notify
+
+check error
+    → notify
+
+no changes
+    → journal / stdout only
+```
+
 Monitoring should answer:
 
 ```text
@@ -713,7 +827,7 @@ Are the services running?
 Are they healthy?
 Did their state change?
 Are container images stale?
-Can external clients still resolve the services correctly?
+Does the externally observed DNS path still behave as expected?
 ```
 
 ---
@@ -764,50 +878,56 @@ clone vps-services
         ↓
 ./deploy.sh
         ↓
-deploy application services
+restore service secrets + Compose environment
+        ↓
+reconcile Docker services
+        ↓
+create br-pihole
+        ↓
+reconcile PVP DNS / Unbound
+        ↓
+install monitoring
         ↓
 register deploy key if new
         ↓
-Press Enter
+interactive pause only when a terminal is attached
         ↓
-capture credentials
+normal linux-environments credential capture preserves new deploy key
 ```
 
-The host must be healthy before the application layer is restored.
+The host networking primitives must be healthy before the application layer is restored.
+
+`deploy.sh` restores reproducible configuration and credentials; it does not yet replace mutable-state backups.
 
 ---
 
 # ⏱️ Boot Ordering
 
-Heighliner's services have real networking dependencies.
-
-Two are particularly important.
+Heighliner's services have real networking dependencies, but not every deployment dependency should become a direct systemd dependency.
 
 ## Pi-hole
 
-Pi-hole binds directly to:
+Pi-hole publishes services on:
 
 ```text
 10.9.0.1
 ```
 
-Therefore:
+Therefore the persistent relationship is:
 
 ```text
 wg-pvp
     ↓
-Docker
-    ↓
-Pi-hole
+Docker / Pi-hole
 ```
 
-must be respected.
+`vps-services` installs the service-specific ordering drop-ins that make Docker wait for the already-defined `wg-pvp` unit.
 
-Starting Docker first can cause Pi-hole to fail because the bind address does not yet exist.
+Starting Docker before `wg-pvp` exists can cause the Pi-hole bind to fail.
 
 ---
 
-## PVP DNS
+## PVP DNS / Unbound
 
 Unbound's privacy route depends on:
 
@@ -816,14 +936,41 @@ wg-proton
     ↓
 wormlogic-pvp policy routing
     ↓
-PVP DNS updater
+PVP DNS host-state reconciliation
     ↓
 Unbound
 ```
 
-The durable ordering belongs in host configuration.
+The PVP DNS installer also depends on:
 
-The application deploy should validate that the resulting host state exists.
+```text
+Docker
+    ↓
+br-pihole = 172.21.0.1/24
+```
+
+because Unbound is verified on the host side of that bridge.
+
+That second relationship is handled by `deploy.sh`:
+
+```text
+./dc up -d
+    ↓
+verify br-pihole
+    ↓
+services/pvp-dns/install.sh
+```
+
+Do **not** add:
+
+```ini
+Requires=docker.service
+After=docker.service
+```
+
+to the Unbound override. That direct dependency has already been shown to produce a failed boot dependency on Heighliner.
+
+Persistent service ordering should keep the known-good WireGuard/PVP relationships without turning Docker into an Unbound requirement.
 
 ---
 
@@ -853,6 +1000,23 @@ Include stopped services when needed:
 
 ---
 
+## Compose Environment Recovery
+
+Confirm the encrypted recovery copy can reproduce the deployment env byte-for-byte:
+
+```bash
+tmp="$(mktemp)"
+
+sops --decrypt   --input-type json   --output-type binary   secrets/vps01/env/vps01.env.enc   > "$tmp"
+
+cmp env/vps01.env "$tmp" &&
+  echo "✓ vps01.env recovery copy is byte-identical"
+
+rm -f "$tmp"
+```
+
+---
+
 ## WireGuard Prerequisites
 
 ```bash
@@ -876,12 +1040,49 @@ wg-proton
 
 ---
 
-## Pi-hole Binding
+## Pi-hole Binding and Bridge
 
 ```bash
 ip addr show wg-pvp
 ss -lntup | grep '10\.9\.0\.1'
+ip -4 addr show br-pihole
 ```
+
+Expected host-side bridge address:
+
+```text
+172.21.0.1/24
+```
+
+---
+
+## PVP DNS / Unbound
+
+```bash
+sudo systemctl is-active unbound.service
+sudo unbound-checkconf
+```
+
+Confirm the Unbound process is policy-routed through Proton:
+
+```bash
+ip -4 route get 9.9.9.9 uid "$(id -u unbound)"
+```
+
+The result should use:
+
+```text
+dev wg-proton
+table pvp
+```
+
+Confirm actual DNS resolution through the bridge-side Unbound listener:
+
+```bash
+dig @172.21.0.1 -p 5335 example.com A +time=5 +tries=1
+```
+
+A successful response proves more than configuration syntax or process state.
 
 ---
 
@@ -890,11 +1091,7 @@ ss -lntup | grep '10\.9\.0\.1'
 List runtime secret filenames without revealing their contents:
 
 ```bash
-find runtime/vps01/secrets \
-  -maxdepth 1 \
-  -type f \
-  -printf '%f\n' \
-  | sort
+find runtime/vps01/secrets   -maxdepth 1   -type f   -printf '%f\n'   | sort
 ```
 
 ---
@@ -934,18 +1131,23 @@ None replaces the others.
 
 A few rules keep Heighliner understandable:
 
-* **Host configuration belongs in `linux-environments`.**
-* **Heighliner application deployment belongs here.**
-* **WireGuard topology and policy routing are host state.**
-* **PVP DNS application configuration belongs here.**
+* **Host bootstrap and WireGuard authority belong in `linux-environments`.**
+* **Heighliner application and service behavior belong in `vps-services`.**
+* **WireGuard interface definitions, topology and routing primitives are host state.**
+* **PVP DNS and Unbound service configuration belong here.**
+* **Repo-owned services may own their own systemd units and service-specific ordering.**
+* **Docker-created network state must exist before installers that bind to or verify it.**
+* **Do not encode the `br-pihole` prerequisite as a direct Unbound → Docker systemd requirement.**
 * **Secrets are encrypted with SOPS at rest.**
-* **Decrypted service secrets live only in runtime state.**
+* **Decrypted service credentials live only in runtime state.**
+* **The Compose environment is separate local deployment state under `env/` with a deterministic encrypted recovery copy.**
 * **Standalone installers consume secrets; they do not own them.**
 * **Each repository gets its own GitHub deploy key.**
 * **Deployments should be safe to rerun.**
 * **Compose reconciles container state.**
 * **Immutable installed releases are preferred for standalone runtime services.**
 * **Monitoring should report actionable change, not routine success.**
+* **External monitoring describes its actual vantage point rather than claiming universal coverage.**
 * **Generated runtime state does not become accidental Git structure.**
 * **Recovery paths are infrastructure and should be tested like infrastructure.**
 
