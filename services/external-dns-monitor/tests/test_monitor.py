@@ -42,6 +42,15 @@ class ObservationEnvelopeTests(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_production_example_uses_current_dns_endpoints(self):
+        config = monitor.load_config(MODULE.parent / "external-dns-monitor.toml.example")
+
+        self.assertEqual(config.piholes, {
+            "pihole1": "10.42.20.10",
+            "pihole2": "10.42.20.11",
+        })
+        self.assertEqual(config.midway_address, "10.42.254.53")
+
     def test_config_requires_external_vantage_and_runtime_token_file(self):
         config_text = """[monitor]
 positive_name = "example.com"
@@ -54,11 +63,11 @@ token_file = "/home/lightweight/vps-services/runtime/vps01/secrets/leto_ops_ingr
 machine_id = "vps01"
 
 [piholes.pihole1]
-address = "10.42.42.10"
+address = "10.42.20.10"
 [piholes.pihole2]
-address = "10.42.42.11"
+address = "10.42.20.11"
 [midway]
-address = "10.42.42.1"
+address = "10.42.254.53"
 """
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "monitor.toml"
@@ -67,8 +76,8 @@ address = "10.42.42.1"
         self.assertEqual(config.vantage, "external-wireguard")
         self.assertEqual(config.endpoint, "https://ops.wormlogic.com/webhook/leto/dns-observations")
         self.assertEqual(str(config.token_file), "/home/lightweight/vps-services/runtime/vps01/secrets/leto_ops_ingress_token")
-        self.assertEqual(config.piholes["pihole1"], "10.42.42.10")
-        self.assertEqual(config.midway_address, "10.42.42.1")
+        self.assertEqual(config.piholes["pihole1"], "10.42.20.10")
+        self.assertEqual(config.midway_address, "10.42.254.53")
 
     def test_config_rejects_a_noncentral_token_path(self):
         config_text = """[monitor]
@@ -82,11 +91,11 @@ token_file = "/tmp/alternate-token"
 machine_id = "vps01"
 
 [piholes.pihole1]
-address = "10.42.42.10"
+address = "10.42.20.10"
 [piholes.pihole2]
-address = "10.42.42.11"
+address = "10.42.20.11"
 [midway]
-address = "10.42.42.1"
+address = "10.42.254.53"
 """
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "monitor.toml"
@@ -97,7 +106,7 @@ address = "10.42.42.1"
 
 class ProbeTests(unittest.TestCase):
     def test_collect_snapshot_probes_both_piholes_and_nonce_midway_query(self):
-        config = monitor.Config("example.com", "doubleclick.net", "external-wireguard", "https://ops.example", Path("/token"), "vps01", {"pihole1": "10.42.42.10", "pihole2": "10.42.42.11"}, "10.42.42.1", Path("/state.json"))
+        config = monitor.Config("example.com", "doubleclick.net", "external-wireguard", "https://ops.example", Path("/token"), "vps01", {"pihole1": "10.42.20.10", "pihole2": "10.42.20.11"}, "10.42.254.53", Path("/state.json"))
         calls = []
         def probe(server, name, tcp=False):
             calls.append((server, name, tcp))
@@ -106,14 +115,14 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(snapshot["piholes"]["pihole1"], {"udp": True, "tcp": True, "blocking": False, "latency_ms": 7})
         self.assertEqual(snapshot["piholes"]["pihole2"], {"udp": True, "tcp": True, "blocking": False, "latency_ms": 7})
         self.assertEqual(snapshot["midway"], {"fresh_recursion": True, "latency_ms": 7})
-        self.assertIn(("10.42.42.1", "dns-resilience-abc123.example.com", False), calls)
+        self.assertIn(("10.42.254.53", "dns-resilience-abc123.example.com", False), calls)
         self.assertEqual(len(calls), 7)
 
     def test_midway_noerror_without_an_answer_is_fresh_recursion(self):
-        config = monitor.Config("example.com", "doubleclick.net", "external-wireguard", "https://ops.example", Path("/token"), "vps01", {"pihole1": "10.42.42.10", "pihole2": "10.42.42.11"}, "10.42.42.1", Path("/state.json"))
+        config = monitor.Config("example.com", "doubleclick.net", "external-wireguard", "https://ops.example", Path("/token"), "vps01", {"pihole1": "10.42.20.10", "pihole2": "10.42.20.11"}, "10.42.254.53", Path("/state.json"))
 
         def probe(server, _name, tcp=False):
-            if server == "10.42.42.1":
+            if server == "10.42.254.53":
                 return {"transport_ok": True, "rcode": "NOERROR", "answers": [], "latency_ms": 7}
             return {"transport_ok": True, "rcode": "NOERROR", "answers": ["203.0.113.1"], "latency_ms": 7}
 

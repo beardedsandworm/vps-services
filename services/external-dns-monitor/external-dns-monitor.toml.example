@@ -12,9 +12,9 @@ token_file = "/home/lightweight/vps-services/runtime/vps01/secrets/leto_ops_ingr
 machine_id = "vps01"
 
 [piholes.pihole1]
-address = "10.42.42.10"
+address = "10.42.20.10"
 [piholes.pihole2]
-address = "10.42.42.11"
+address = "10.42.20.11"
 
 [midway]
-address = "10.42.42.1"
+address = "10.42.254.53"
