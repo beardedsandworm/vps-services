@@ -305,30 +305,15 @@ After=wg-quick@wg-pvp.service
 DROPIN
 
 #
-# Unbound's PVP DNS path depends on wg-proton and on
-# the PVP DNS host-state reconciliation service.
+# services/pvp-dns/install.sh is the sole deployment authority for the
+# Unbound administrator unit and its PVP DNS drop-ins. Keep those artifacts
+# out of this top-level script so redeployment cannot create competing copies.
 #
-# Docker is also required because Unbound binds to
-# the host side of br-pihole at 172.21.0.1:5335.
-#
-
-sudo install -d -m 0755 \
-    /etc/systemd/system/unbound.service.d
-
-cat <<'DROPIN' | sudo tee \
-    /etc/systemd/system/unbound.service.d/wormlogic-pvp.conf \
-    >/dev/null
-[Unit]
-Requires=wg-quick@wg-proton.service
-After=wg-quick@wg-proton.service
-Wants=wormlogic-pvp-dns-update.service
-After=wormlogic-pvp-dns-update.service
-DROPIN
 
 sudo systemctl daemon-reload
 
 printf '✓ wg-pvp will precede Docker/Pi-hole at boot\n'
-printf '✓ wg-proton and PVP DNS state will precede Unbound at boot\n'
+printf '✓ PVP DNS installer reconciled Unbound boot ordering\n'
 
 
 # --------------------------------------------------

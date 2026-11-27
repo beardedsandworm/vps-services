@@ -438,6 +438,8 @@ It manages the service-side DNS environment, including:
 * database rebuilds
 * DNS update automation
 * PVP DNS host-state reconciliation
+* the full Unbound administrator unit and its PVP DNS drop-ins
+* the PVP DNS updater's explicit-Python systemd override
 * runtime validation
 
 It installs:
@@ -482,7 +484,7 @@ The Pi-hole bridge is created by the Compose deployment in `vps-services`.
 
 For that reason, `deploy.sh` starts/reconciles Docker and explicitly verifies `br-pihole` before invoking `services/pvp-dns/install.sh`.
 
-The bridge dependency is **not** encoded as `Requires=docker.service` / `After=docker.service` on `unbound.service`; that direct systemd dependency causes a failed boot dependency on Heighliner. Deployment handles the bridge prerequisite procedurally instead.
+The bridge dependency is **not** encoded as `Requires=docker.service` / `After=docker.service` on `unbound.service`; that direct systemd dependency causes a failed boot dependency on Heighliner. Deployment creates and validates the bridge procedurally, while the Unbound service drop-in bounds its wait for the bridge address during boot.
 
 ---
 
@@ -972,6 +974,25 @@ to the Unbound override. That direct dependency has already been shown to produc
 
 Persistent service ordering should keep the known-good WireGuard/PVP relationships without turning Docker into an Unbound requirement.
 
+Heighliner uses a full administrator-owned `unbound.service` unit rather than the
+vendor unit directly. It preserves the vendor service definition but omits:
+
+```ini
+Before=nss-lookup.target
+Wants=nss-lookup.target
+```
+
+Those edges created cycles involving WireGuard, Docker, PVP policy routing and
+DNS initialization. `services/pvp-dns/install.sh` installs that full unit plus
+the bridge-wait and PVP-ordering drop-ins. It also installs the DNS updater
+drop-in that invokes the blocklist builder through `/usr/bin/python3`, avoiding
+systemd `203/EXEC` failures.
+
+The full unit shadows future package changes. Every Unbound package unit update
+must therefore be reviewed against `services/pvp-dns/unbound.service`; carry
+forward relevant vendor service changes without silently restoring the two
+cycle-producing `nss-lookup.target` dependencies.
+
 ---
 
 # 🧪 Verification
@@ -1138,6 +1159,7 @@ A few rules keep Heighliner understandable:
 * **Repo-owned services may own their own systemd units and service-specific ordering.**
 * **Docker-created network state must exist before installers that bind to or verify it.**
 * **Do not encode the `br-pihole` prerequisite as a direct Unbound → Docker systemd requirement.**
+* **Review vendor Unbound unit changes against the repo-owned full override before deployment.**
 * **Secrets are encrypted with SOPS at rest.**
 * **Decrypted service credentials live only in runtime state.**
 * **The Compose environment is separate local deployment state under `env/` with a deterministic encrypted recovery copy.**

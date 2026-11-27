@@ -58,7 +58,6 @@ The policy mirrors Midway/OPNsense.
 
 **Security**
 
-* ThreatFox IOC
 * HaGeZi Threat Intelligence
 * HaGeZi Fake/scams
 
@@ -71,6 +70,9 @@ The policy mirrors Midway/OPNsense.
 **DNS enforcement**
 
 * HaGeZi DoH/VPN/TOR/Proxy Bypass
+
+These are the six required sources. The discontinued ThreatFox (`atf`) feed is
+not part of the policy; its endpoint now returns HTTP 410.
 
 The DNS-enforcement policy retains the Midway Tor Project allowlist:
 
@@ -90,14 +92,58 @@ Blocked A/CNAME queries return `0.0.0.0`, matching Midway behavior rather than r
 The associated oneshot service:
 
 1. verifies/restores required host state
-2. rebuilds the SQLite database
-3. installs the completed database atomically
-4. validates the Unbound configuration
-5. restarts Unbound only after a successful build
+2. refreshes all six sources independently
+3. rejects empty downloads and retains a per-source last-known-good copy under `/var/cache/wormlogic-pvp-dns/`
+4. warns when a fallback cache is at least seven days old
+5. refuses to replace the production database if a required source has neither a valid download nor a cached copy
+6. builds a temporary SQLite database while preserving the existing policy IDs, allowlists, wildcard semantics and schema
+7. rejects empty policies and requires `PRAGMA integrity_check` to return `ok`
+8. replaces the production database atomically only after all validation succeeds
+9. validates the Unbound configuration and restarts Unbound only after a successful build
 
 `Persistent=true` causes a missed refresh to run after downtime.
 
 A successful oneshot service normally appears as `inactive (dead)` after completion.
+
+The service drop-in invokes the builder through `/usr/bin/python3` explicitly.
+Do not restore direct execution of the script: the explicit interpreter avoids
+systemd `203/EXEC` failures and is part of the deployed contract.
+
+## Systemd dependency architecture
+
+The installer owns the complete Unbound administrator unit at
+`/etc/systemd/system/unbound.service`, along with its drop-ins. The full unit is
+based on Ubuntu's vendor definition but deliberately omits:
+
+```ini
+Before=nss-lookup.target
+Wants=nss-lookup.target
+```
+
+Those vendor edges formed boot-ordering cycles among WireGuard, Docker, PVP
+policy routing and DNS initialization. The retained dependency graph is:
+
+```text
+network-online.target
+        ↓
+wg-proton
+        ↓
+wormlogic-pvp-dns-update.service
+        ↓
+unbound.service
+```
+
+`unbound.service.d/override.conf` waits for the already-created Pi-hole bridge
+address without adding an Unbound `Requires=` or `After=` dependency on Docker.
+`unbound.service.d/wormlogic-pvp.conf` retains the required `wg-proton` and PVP
+DNS update relationships. Docker continues to depend on `wg-pvp` for Pi-hole's
+published address, independently of Unbound.
+
+Because the administrator unit shadows the package unit, future Unbound package
+updates do not automatically update this copy. Review every vendor unit change
+against `services/pvp-dns/unbound.service`, preserve relevant service-definition
+changes, and continue excluding the two `nss-lookup.target` edges unless the
+dependency architecture is deliberately redesigned and reboot-tested.
 
 ## Host requirements
 
@@ -163,7 +209,8 @@ The installer handles:
 * AppArmor permissions
 * GRO workaround
 * Unbound UID policy routing
-* update service and timer
+* full Unbound administrator unit and PVP DNS drop-ins
+* update service, explicit-Python override and timer
 * Unbound validation and restart
 
 The PVP WireGuard gateway and `wg-proton` must already be available.

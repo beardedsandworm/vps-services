@@ -29,9 +29,25 @@ config/n8n/data/*
 config/beszel/data/*
 !config/beszel/data/.gitkeep
 
-# Local backup copies
+# Local backup and temporary copies
 *.bak
 *.backup
+*.orig
+*.tmp
+*.new
+*~
+
+# Generated Python and SQLite state
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+
+# Downloaded PVP DNS source/cache state
+/services/pvp-dns/cache/
+/services/pvp-dns/downloads/
 
 # Miscellaneous
 *.log

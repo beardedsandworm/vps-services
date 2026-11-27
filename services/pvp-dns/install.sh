@@ -15,6 +15,11 @@ APPARMOR_LOCAL="/etc/apparmor.d/local/usr.sbin.unbound"
 UPDATE_SERVICE="wormlogic-pvp-dns-update.service"
 UPDATE_TIMER="wormlogic-pvp-dns-update.timer"
 
+SYSTEMD_DIR="/etc/systemd/system"
+UNBOUND_SERVICE="unbound.service"
+UNBOUND_DROPIN_DIR="$UNBOUND_SERVICE.d"
+UPDATE_DROPIN_DIR="$UPDATE_SERVICE.d"
+
 DNS_TEST_DOMAIN="example.com"
 DNS_TEST_PORT="5335"
 
@@ -38,7 +43,11 @@ for file in \
     "$HERE/dnsbl_module.py" \
     "$HERE/ensure-host-state.sh" \
     "$HERE/pvp.conf" \
+    "$HERE/$UNBOUND_SERVICE" \
+    "$HERE/$UNBOUND_DROPIN_DIR/override.conf" \
+    "$HERE/$UNBOUND_DROPIN_DIR/wormlogic-pvp.conf" \
     "$HERE/$UPDATE_SERVICE" \
+    "$HERE/$UPDATE_DROPIN_DIR/override.conf" \
     "$HERE/$UPDATE_TIMER"
 do
     require_file "$file"
@@ -147,15 +156,48 @@ echo "✓ AppArmor local override installed"
 echo
 echo "=== Installing systemd units ==="
 
+# This full administrator unit deliberately replaces the vendor Unbound unit.
+# It preserves the vendor service definition while removing the vendor
+# Before=/Wants=nss-lookup.target edges that form ordering cycles with the
+# WireGuard, Docker and PVP DNS boot graph. Review future vendor unit changes
+# against this repository copy before accepting them.
+"${SUDO[@]}" install \
+    -o root -g root -m 0644 \
+    "$HERE/$UNBOUND_SERVICE" \
+    "$SYSTEMD_DIR/$UNBOUND_SERVICE"
+
+"${SUDO[@]}" install \
+    -d -o root -g root -m 0755 \
+    "$SYSTEMD_DIR/$UNBOUND_DROPIN_DIR"
+
+"${SUDO[@]}" install \
+    -o root -g root -m 0644 \
+    "$HERE/$UNBOUND_DROPIN_DIR/override.conf" \
+    "$SYSTEMD_DIR/$UNBOUND_DROPIN_DIR/override.conf"
+
+"${SUDO[@]}" install \
+    -o root -g root -m 0644 \
+    "$HERE/$UNBOUND_DROPIN_DIR/wormlogic-pvp.conf" \
+    "$SYSTEMD_DIR/$UNBOUND_DROPIN_DIR/wormlogic-pvp.conf"
+
 "${SUDO[@]}" install \
     -o root -g root -m 0644 \
     "$HERE/$UPDATE_SERVICE" \
-    "/etc/systemd/system/$UPDATE_SERVICE"
+    "$SYSTEMD_DIR/$UPDATE_SERVICE"
+
+"${SUDO[@]}" install \
+    -d -o root -g root -m 0755 \
+    "$SYSTEMD_DIR/$UPDATE_DROPIN_DIR"
+
+"${SUDO[@]}" install \
+    -o root -g root -m 0644 \
+    "$HERE/$UPDATE_DROPIN_DIR/override.conf" \
+    "$SYSTEMD_DIR/$UPDATE_DROPIN_DIR/override.conf"
 
 "${SUDO[@]}" install \
     -o root -g root -m 0644 \
     "$HERE/$UPDATE_TIMER" \
-    "/etc/systemd/system/$UPDATE_TIMER"
+    "$SYSTEMD_DIR/$UPDATE_TIMER"
 
 "${SUDO[@]}" systemctl daemon-reload
 
@@ -164,6 +206,7 @@ echo "=== Installing systemd units ==="
 "${SUDO[@]}" systemctl enable "$UPDATE_SERVICE"
 "${SUDO[@]}" systemctl enable --now "$UPDATE_TIMER"
 
+echo "✓ Unbound service override and PVP DNS drop-ins installed"
 echo "✓ PVP DNS update service and timer installed"
 
 echo
@@ -276,6 +319,7 @@ echo "✓ PVP DNS installation complete"
 echo "  Unbound config:    $UNBOUND_CONF"
 echo "  DNSBL module:      $RUNTIME_DIR/dnsbl_module.py"
 echo "  DNSBL database:    $DB_FILE"
+echo "  Unbound unit:      $SYSTEMD_DIR/$UNBOUND_SERVICE"
 echo "  AppArmor override: $APPARMOR_LOCAL"
 echo "  GRO:                disabled on eth0"
 echo "  PVP route:          wg-proton"
