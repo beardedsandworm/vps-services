@@ -982,11 +982,11 @@ Before=nss-lookup.target
 Wants=nss-lookup.target
 ```
 
-Those edges created cycles involving WireGuard, Docker, PVP policy routing and
-DNS initialization. `services/pvp-dns/install.sh` installs that full unit plus
-the bridge-wait and PVP-ordering drop-ins. It also installs the DNS updater
-drop-in that invokes the blocklist builder through `/usr/bin/python3`, avoiding
-systemd `203/EXEC` failures.
+Those edges are excluded because they introduce cycles involving WireGuard,
+Docker, PVP policy routing and DNS initialization.
+`services/pvp-dns/install.sh` installs that full unit plus the bridge-wait and
+PVP-ordering drop-ins. It also installs the DNS updater drop-in that invokes the
+blocklist builder through `/usr/bin/python3` as its supported execution contract.
 
 The full unit shadows future package changes. Every Unbound package unit update
 must therefore be reviewed against `services/pvp-dns/unbound.service`; carry

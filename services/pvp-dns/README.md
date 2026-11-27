@@ -71,9 +71,6 @@ The policy mirrors Midway/OPNsense.
 
 * HaGeZi DoH/VPN/TOR/Proxy Bypass
 
-These are the six required sources. The discontinued ThreatFox (`atf`) feed is
-not part of the policy; its endpoint now returns HTTP 410.
-
 The DNS-enforcement policy retains the Midway Tor Project allowlist:
 
 ```text
@@ -106,8 +103,7 @@ The associated oneshot service:
 A successful oneshot service normally appears as `inactive (dead)` after completion.
 
 The service drop-in invokes the builder through `/usr/bin/python3` explicitly.
-Do not restore direct execution of the script: the explicit interpreter avoids
-systemd `203/EXEC` failures and is part of the deployed contract.
+This is the supported execution contract for the installed builder.
 
 ## Systemd dependency architecture
 
@@ -120,8 +116,9 @@ Before=nss-lookup.target
 Wants=nss-lookup.target
 ```
 
-Those vendor edges formed boot-ordering cycles among WireGuard, Docker, PVP
-policy routing and DNS initialization. The retained dependency graph is:
+Those vendor edges are incompatible with this architecture because they
+introduce boot-ordering cycles among WireGuard, Docker, PVP policy routing and
+DNS initialization. The retained dependency graph is:
 
 ```text
 network-online.target
